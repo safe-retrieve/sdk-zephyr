@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// clang-format off
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <zephyr/logging/log_backend.h>
@@ -34,6 +36,7 @@ static int get_log_file_id(struct fs_dirent *ent);
 #ifndef CONFIG_LOG_BACKEND_FS_TESTSUITE
 static uint32_t log_format_current = CONFIG_LOG_BACKEND_FS_OUTPUT_DEFAULT;
 #endif
+static volatile bool force_cycle = false;
 
 static int check_log_volume_available(void)
 {
@@ -163,6 +166,15 @@ int write_log_to_file(uint8_t *data, size_t length, void *ctx)
 	}
 
 	if (backend_state == BACKEND_FS_OK) {
+
+        /* Check if we need to create a new file. */
+        if (force_cycle) {
+			force_cycle = false;
+			rc = allocate_new_file(f);
+			if (rc < 0) {
+				goto on_error;
+			}
+		}
 
 		/* Check if new data overwrites max file size.
 		 * If so, create new log file.
@@ -505,3 +517,9 @@ static const struct log_backend_api log_backend_fs_api = {
 LOG_BACKEND_DEFINE(log_backend_fs, log_backend_fs_api,
 		   IS_ENABLED(CONFIG_LOG_BACKEND_FS_AUTOSTART));
 #endif
+
+void log_backend_fs_force_cycle(void)
+{
+    /* Set the flag to force a file cycle. */
+    force_cycle = true;
+}

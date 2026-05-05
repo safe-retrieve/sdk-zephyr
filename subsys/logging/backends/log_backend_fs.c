@@ -523,3 +523,11 @@ void log_backend_fs_force_cycle(void)
     /* Set the flag to force a file cycle. */
     force_cycle = true;
 }
+
+void log_backend_fs_teardown(void)
+{
+    if (backend_state == BACKEND_FS_OK) {
+        fs_close(&fs_file);
+    }
+    backend_state = BACKEND_FS_NOT_INITIALIZED;
+}

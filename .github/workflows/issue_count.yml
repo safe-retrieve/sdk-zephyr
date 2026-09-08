@@ -1,9 +1,10 @@
 name: Issue Tracker
 
 on:
-  schedule:
-  - cron: '*/10 * * * *'
+#   schedule:
+#   - cron: '*/10 * * * *'
 
+  workflow_dispatch:
 env:
   OUTPUT_FILE_NAME: IssuesReport.md
   COMMITTER_EMAIL: actions@github.com

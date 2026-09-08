@@ -1,8 +1,9 @@
 name: "Close stale pull requests/issues"
 on:
-  schedule:
-  - cron: "16 00 * * *"
+#   schedule:
+#   - cron: "16 00 * * *"
 
+  workflow_dispatch:
 jobs:
   stale:
     name: Find Stale issues and PRs

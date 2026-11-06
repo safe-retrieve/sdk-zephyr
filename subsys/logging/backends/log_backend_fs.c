@@ -30,6 +30,34 @@ static struct fs_file_t fs_file;
 static enum backend_fs_state backend_state = BACKEND_FS_NOT_INITIALIZED;
 static int file_ctr, newest, oldest;
 
+#ifndef CONFIG_LOG_BACKEND_FS_SYNC_INTERVAL_MS
+#define CONFIG_LOG_BACKEND_FS_SYNC_INTERVAL_MS 1000
+#endif
+
+#if CONFIG_LOG_BACKEND_FS_SYNC_INTERVAL_MS > 0
+static int64_t last_sync_time;
+#endif
+static bool sync_needed;
+
+static int do_fs_sync(void)
+{
+	int rc = 0;
+
+	if (backend_state == BACKEND_FS_OK && sync_needed) {
+		rc = fs_sync(&fs_file);
+		if (rc < 0) {
+			backend_state = BACKEND_FS_CORRUPTED;
+			return rc;
+		}
+		sync_needed = false;
+#if CONFIG_LOG_BACKEND_FS_SYNC_INTERVAL_MS > 0
+		last_sync_time = k_uptime_get();
+#endif
+	}
+
+	return rc;
+}
+
 static int allocate_new_file(struct fs_file_t *file);
 static int del_oldest_log(void);
 static int get_log_file_id(struct fs_dirent *ent);
@@ -223,11 +251,27 @@ int write_log_to_file(uint8_t *data, size_t length, void *ctx)
 			length = 0;
 		}
 
-		rc = fs_sync(f);
-		if (rc < 0) {
-			/* Something is wrong */
-			goto on_error;
+		if (length > 0) {
+			sync_needed = true;
 		}
+
+#if CONFIG_LOG_BACKEND_FS_SYNC_INTERVAL_MS > 0
+		int64_t now = k_uptime_get();
+
+		if (sync_needed && ((now - last_sync_time) >= CONFIG_LOG_BACKEND_FS_SYNC_INTERVAL_MS)) {
+			rc = do_fs_sync();
+			if (rc < 0) {
+				goto on_error;
+			}
+		}
+#else
+		if (sync_needed) {
+			rc = do_fs_sync();
+			if (rc < 0) {
+				goto on_error;
+			}
+		}
+#endif
 	}
 
 	return length;
@@ -381,6 +425,11 @@ static int allocate_new_file(struct fs_file_t *file)
 			backend_state = BACKEND_FS_OK;
 		}
 	} else {
+		rc = do_fs_sync();
+		if (rc < 0) {
+			goto out;
+		}
+
 		fs_close(file);
 
 		curr_file_num = newest;
@@ -473,6 +522,11 @@ static void log_backend_fs_init(const struct log_backend *const backend)
 
 static void panic(struct log_backend const *const backend)
 {
+	/* Flush pending writes if safe to do so before deactivating */
+	if (!k_is_in_isr()) {
+		(void)do_fs_sync();
+	}
+
 	/* In case of panic deinitialize backend. It is better to keep
 	 * current data rather than log new and risk of failure.
 	 */
@@ -506,12 +560,25 @@ static int format_set(const struct log_backend *const backend, uint32_t log_type
 	return 0;
 }
 
+static void notify(const struct log_backend *const backend,
+		   enum log_backend_evt event,
+		   union log_backend_evt_arg *arg)
+{
+	ARG_UNUSED(backend);
+	ARG_UNUSED(arg);
+
+	if (event == LOG_BACKEND_EVT_PROCESS_THREAD_DONE) {
+		(void)do_fs_sync();
+	}
+}
+
 static const struct log_backend_api log_backend_fs_api = {
 	.process = process,
 	.panic = panic,
 	.init = log_backend_fs_init,
 	.dropped = dropped,
 	.format_set = format_set,
+	.notify = notify,
 };
 
 LOG_BACKEND_DEFINE(log_backend_fs, log_backend_fs_api,
@@ -527,7 +594,13 @@ void log_backend_fs_force_cycle(void)
 void log_backend_fs_teardown(void)
 {
     if (backend_state == BACKEND_FS_OK) {
+        (void)do_fs_sync();
         fs_close(&fs_file);
     }
     backend_state = BACKEND_FS_NOT_INITIALIZED;
+}
+
+int log_backend_fs_sync(void)
+{
+    return do_fs_sync();
 }

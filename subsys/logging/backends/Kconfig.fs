@@ -66,4 +66,15 @@ config LOG_BACKEND_FS_FILES_LIMIT
 	  Limit of number of files with logs. It is also limited by
 	  size of file system partition.
 
+config LOG_BACKEND_FS_SYNC_INTERVAL_MS
+	int "Log file sync interval in milliseconds"
+	default 1000
+	range 0 60000
+	help
+	  Interval in milliseconds between explicit filesystem sync (fs_sync) operations.
+	  If set to 0, fs_sync is performed synchronously on every write call (legacy behavior).
+	  If greater than 0, fs_sync is executed periodically during sustained logging,
+	  when the logging thread finishes processing a batch and becomes idle, before log file
+	  rotation, and during backend teardown.
+
 endif # LOG_BACKEND_FS
